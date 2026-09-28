@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, Signal, QUrl
+from PySide6.QtCore import QSettings, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -199,10 +199,15 @@ class MainWindow(QMainWindow):
         self.output_label.setObjectName("description")
         layout.addWidget(self.output_label)
 
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("statusLabel")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.progress.setFormat("Ready")
+        self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
         actions = QHBoxLayout()
@@ -284,6 +289,10 @@ class MainWindow(QMainWindow):
             QLabel#description, QLabel#dropSubtitle {
                 color: #62666d;
             }
+            QLabel#statusLabel {
+                color: #62666d;
+                min-height: 22px;
+            }
             QFrame#dropArea {
                 background: #ffffff;
                 border: 2px dashed #aeb4bd;
@@ -321,6 +330,26 @@ class MainWindow(QMainWindow):
             """
         )
 
+    def _show_idle_status(self, text: str = "Ready") -> None:
+        self.progress.setVisible(False)
+        self.status_label.setText(text)
+        self.status_label.setVisible(True)
+
+    def _show_progress_status(
+        self,
+        text: str,
+        value: int | None = None,
+    ) -> None:
+        self.status_label.setVisible(False)
+        self.progress.setVisible(True)
+        if value is not None:
+            self.progress.setValue(value)
+        self.progress.setFormat(text)
+
+    def _return_to_idle_after_batch(self) -> None:
+        if self.worker is None:
+            self._show_idle_status("Ready")
+
     def choose_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Add media files", "", VIDEO_FILTER
@@ -351,8 +380,9 @@ class MainWindow(QMainWindow):
             added += 1
 
         if added:
-            self.progress.setValue(0)
-            self.progress.setFormat(f"{len(self.files)} file(s) queued")
+            self._show_idle_status(
+                f"{len(self.files)} file(s) queued"
+            )
         self._refresh_controls()
 
     def _remove_rows(self, rows: list[int]) -> None:
@@ -364,6 +394,14 @@ class MainWindow(QMainWindow):
     def remove_selected(self) -> None:
         rows = [index.row() for index in self.table.selectedIndexes()]
         self._remove_rows(rows)
+
+        if not self.files:
+            self._show_idle_status("Ready")
+        elif self.worker is None:
+            self._show_idle_status(
+                f"{len(self.files)} file(s) in the list"
+            )
+
         self._refresh_controls()
 
     def clear_completed(self) -> None:
@@ -375,10 +413,9 @@ class MainWindow(QMainWindow):
 
         self._remove_rows(rows)
         if not self.files:
-            self.progress.setValue(0)
-            self.progress.setFormat("Ready")
+            self._show_idle_status("Ready")
         else:
-            self.progress.setFormat(
+            self._show_idle_status(
                 f"{len(self.files)} file(s) remaining in the list"
             )
         self._refresh_controls()
@@ -386,8 +423,7 @@ class MainWindow(QMainWindow):
     def clear_queue(self) -> None:
         self.files.clear()
         self.table.setRowCount(0)
-        self.progress.setValue(0)
-        self.progress.setFormat("Ready")
+        self._show_idle_status("Ready")
         self.last_output_directory = None
         self._refresh_controls()
 
@@ -477,9 +513,9 @@ class MainWindow(QMainWindow):
         self.worker.batch_finished.connect(self.on_batch_finished)
         self.worker.finished.connect(self.worker.deleteLater)
 
-        self.progress.setValue(0)
-        self.progress.setFormat(
-            f"Starting · 0 / {len(self.files)}"
+        self._show_progress_status(
+            f"Starting · 0 / {len(self.files)}",
+            0,
         )
         self._refresh_controls()
         self.worker.start()
@@ -487,12 +523,12 @@ class MainWindow(QMainWindow):
     def cancel_conversion(self) -> None:
         if self.worker:
             self.cancel_button.setEnabled(False)
-            self.progress.setFormat("Cancelling…")
+            self._show_progress_status("Cancelling…")
             self.worker.cancel()
 
     def on_file_started(self, index: int, name: str) -> None:
         self.table.item(index, 2).setText("Preparing…")
-        self.progress.setFormat(
+        self._show_progress_status(
             f"{name} · file {index + 1} of {len(self.files)}"
         )
 
@@ -507,9 +543,9 @@ class MainWindow(QMainWindow):
         overall = int(
             ((index + percent / 100) / total) * 100
         )
-        self.progress.setValue(overall)
-        self.progress.setFormat(
-            f"Converting · file {index + 1} of {total} · {percent}%"
+        self._show_progress_status(
+            f"Converting · file {index + 1} of {total} · {percent}%",
+            overall,
         )
 
     def on_file_finished(
@@ -546,15 +582,14 @@ class MainWindow(QMainWindow):
                 ):
                     status_item.setText("Cancelled")
 
-            self.progress.setFormat(
+            self._show_progress_status(
                 f"Cancelled · {completed} completed, {failed} failed"
             )
         else:
-            self.progress.setValue(100)
             message = f"Finished · {completed} completed"
             if failed:
                 message += f", {failed} failed"
-            self.progress.setFormat(message)
+            self._show_progress_status(message, 100)
 
             notification = (
                 f"Conversion finished. {completed} completed, "
@@ -575,6 +610,7 @@ class MainWindow(QMainWindow):
                 )
 
         self._refresh_controls()
+        QTimer.singleShot(4000, self._return_to_idle_after_batch)
 
     def open_output_folder(self) -> None:
         directory = self.last_output_directory
