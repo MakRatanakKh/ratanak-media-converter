@@ -67,7 +67,12 @@ class ConversionWorker(QThread):
                 info = probe_audio(source)
                 self.file_info.emit(index, info.summary)
                 output = self._output_path(source, info.codec)
-                command = build_ffmpeg_command(source, output, self.mode)
+                command = build_ffmpeg_command(
+                    source,
+                    output,
+                    self.mode,
+                    source_channels=info.channels,
+                )
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
                 process = subprocess.Popen(
