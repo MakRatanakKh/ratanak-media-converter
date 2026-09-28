@@ -30,7 +30,7 @@ Drag multiple videos into the app, choose an audio mode, and let the queue run o
 
 The recommended MP3 mode uses `libmp3lame -q:a 0`. The app does not force a sample rate or channel count, so FFmpeg keeps the source values whenever possible.
 
-Converting AAC, Opus, AC3, or another lossy source to MP3 still requires a new lossy encode. A 320 kbps MP3 cannot restore detail that was not present in the source.
+Converting AAC, Opus, AC3, or another lossy source to MP3 still requires a new lossy encode. A 320 kbps MP3 cannot restore detail that was not present in the source. Because MP3 supports at most two channels, 5.1/7.1 sources are automatically downmixed to stereo in MP3 modes; Original Audio mode preserves the source channel layout.
 
 ### Maximum Bitrate MP3 · 320 kbps
 
