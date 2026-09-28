@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtCore import QSettings, Qt, Signal, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -39,6 +39,8 @@ VIDEO_FILTER = (
     "*.m2ts *.wmv *.flv *.3gp *.ogv *.vob);;All files (*.*)"
 )
 
+TERMINAL_STATUSES = {"Done", "Failed", "Cancelled"}
+
 
 class DropArea(QFrame):
     files_dropped = Signal(list)
@@ -64,11 +66,17 @@ class DropArea(QFrame):
         layout.addStretch()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+        if event.mimeData().hasUrls() and any(
+            url.isLocalFile() for url in event.mimeData().urls()
+        ):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
-        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        paths = [
+            url.toLocalFile()
+            for url in event.mimeData().urls()
+            if url.isLocalFile()
+        ]
         if paths:
             self.files_dropped.emit(paths)
             event.acceptProposedAction()
@@ -80,6 +88,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Ratanak Media Converter")
         self.resize(980, 700)
 
+        self.settings = QSettings()
         self.files: list[Path] = []
         self.worker: ConversionWorker | None = None
         self.custom_output: Path | None = None
@@ -94,6 +103,8 @@ class MainWindow(QMainWindow):
             self.tray.show()
 
         self._build_ui()
+        self._load_settings()
+        self.quality.currentTextChanged.connect(self._save_preferences)
         self._apply_style()
         self._refresh_controls()
 
@@ -121,26 +132,41 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         self.add_button = QPushButton("Add files")
         self.remove_button = QPushButton("Remove selected")
-        self.clear_button = QPushButton("Clear")
+        self.clear_completed_button = QPushButton("Clear completed")
+        self.clear_button = QPushButton("Clear all")
         self.add_button.clicked.connect(self.choose_files)
         self.remove_button.clicked.connect(self.remove_selected)
+        self.clear_completed_button.clicked.connect(self.clear_completed)
         self.clear_button.clicked.connect(self.clear_queue)
         toolbar.addWidget(self.add_button)
         toolbar.addWidget(self.remove_button)
+        toolbar.addWidget(self.clear_completed_button)
         toolbar.addWidget(self.clear_button)
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["File", "Source audio", "Status", "Output"])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setHorizontalHeaderLabels(
+            ["File", "Source audio", "Status", "Output"]
+        )
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table, 1)
 
@@ -153,8 +179,12 @@ class MainWindow(QMainWindow):
 
         settings.addWidget(QLabel("Output:"))
         self.output_mode = QComboBox()
-        self.output_mode.addItems(["Same folder as source", "Custom folder"])
-        self.output_mode.currentIndexChanged.connect(self.output_mode_changed)
+        self.output_mode.addItems(
+            ["Same folder as source", "Custom folder"]
+        )
+        self.output_mode.currentIndexChanged.connect(
+            self.output_mode_changed
+        )
         settings.addWidget(self.output_mode)
 
         self.folder_button = QPushButton("Choose folder")
@@ -163,7 +193,9 @@ class MainWindow(QMainWindow):
         settings.addWidget(self.folder_button)
         layout.addLayout(settings)
 
-        self.output_label = QLabel("Output: same folder as each source file")
+        self.output_label = QLabel(
+            "Output: same folder as each source file"
+        )
         self.output_label.setObjectName("description")
         layout.addWidget(self.output_label)
 
@@ -190,6 +222,49 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.start_button)
         layout.addLayout(actions)
+
+    def _load_settings(self) -> None:
+        geometry = self.settings.value("window/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+        saved_quality = str(
+            self.settings.value("conversion/quality", "")
+        )
+        quality_index = self.quality.findText(saved_quality)
+        if quality_index >= 0:
+            self.quality.setCurrentIndex(quality_index)
+
+        saved_folder = str(
+            self.settings.value("conversion/custom_output", "")
+        )
+        if saved_folder:
+            self.custom_output = Path(saved_folder)
+
+        try:
+            output_index = int(
+                self.settings.value("conversion/output_mode", 0)
+            )
+        except (TypeError, ValueError):
+            output_index = 0
+
+        output_index = 1 if output_index == 1 else 0
+        self.output_mode.blockSignals(True)
+        self.output_mode.setCurrentIndex(output_index)
+        self.output_mode.blockSignals(False)
+        self.output_mode_changed(output_index)
+
+    def _save_preferences(self, *_args) -> None:
+        self.settings.setValue(
+            "conversion/quality", self.quality.currentText()
+        )
+        self.settings.setValue(
+            "conversion/output_mode", self.output_mode.currentIndex()
+        )
+        self.settings.setValue(
+            "conversion/custom_output",
+            str(self.custom_output) if self.custom_output else "",
+        )
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -247,7 +322,9 @@ class MainWindow(QMainWindow):
         )
 
     def choose_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add media files", "", VIDEO_FILTER)
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add media files", "", VIDEO_FILTER
+        )
         if paths:
             self.add_paths(paths)
 
@@ -278,14 +355,32 @@ class MainWindow(QMainWindow):
             self.progress.setFormat(f"{len(self.files)} file(s) queued")
         self._refresh_controls()
 
+    def _remove_rows(self, rows: list[int]) -> None:
+        for row in sorted(set(rows), reverse=True):
+            if 0 <= row < len(self.files):
+                self.table.removeRow(row)
+                del self.files[row]
+
     def remove_selected(self) -> None:
-        rows = sorted(
-            {index.row() for index in self.table.selectedIndexes()},
-            reverse=True,
-        )
-        for row in rows:
-            self.table.removeRow(row)
-            del self.files[row]
+        rows = [index.row() for index in self.table.selectedIndexes()]
+        self._remove_rows(rows)
+        self._refresh_controls()
+
+    def clear_completed(self) -> None:
+        rows = []
+        for row in range(self.table.rowCount()):
+            status_item = self.table.item(row, 2)
+            if status_item and status_item.text() == "Done":
+                rows.append(row)
+
+        self._remove_rows(rows)
+        if not self.files:
+            self.progress.setValue(0)
+            self.progress.setFormat("Ready")
+        else:
+            self.progress.setFormat(
+                f"{len(self.files)} file(s) remaining in the list"
+            )
         self._refresh_controls()
 
     def clear_queue(self) -> None:
@@ -293,6 +388,7 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
+        self.last_output_directory = None
         self._refresh_controls()
 
     def output_mode_changed(self, index: int) -> None:
@@ -301,17 +397,35 @@ class MainWindow(QMainWindow):
 
         if custom:
             if self.custom_output:
-                self.output_label.setText(f"Output: {self.custom_output}")
+                self.output_label.setText(
+                    f"Output: {self.custom_output}"
+                )
             else:
-                self.output_label.setText("Output: choose a custom folder")
+                self.output_label.setText(
+                    "Output: choose a custom folder"
+                )
         else:
-            self.output_label.setText("Output: same folder as each source file")
+            self.output_label.setText(
+                "Output: same folder as each source file"
+            )
+
+        self._save_preferences()
 
     def choose_output_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
+        start = (
+            str(self.custom_output)
+            if self.custom_output and self.custom_output.exists()
+            else ""
+        )
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose output folder", start
+        )
         if folder:
             self.custom_output = Path(folder)
-            self.output_label.setText(f"Output: {self.custom_output}")
+            self.output_label.setText(
+                f"Output: {self.custom_output}"
+            )
+            self._save_preferences()
 
     def _validate_dependencies(self) -> bool:
         try:
@@ -333,7 +447,10 @@ class MainWindow(QMainWindow):
         if not self._validate_dependencies():
             return
 
-        if self.output_mode.currentIndex() == 1 and self.custom_output is None:
+        if (
+            self.output_mode.currentIndex() == 1
+            and self.custom_output is None
+        ):
             self.choose_output_folder()
             if self.custom_output is None:
                 return
@@ -345,10 +462,14 @@ class MainWindow(QMainWindow):
 
         mode = QUALITY_MODES[self.quality.currentText()]
         output_dir = (
-            self.custom_output if self.output_mode.currentIndex() == 1 else None
+            self.custom_output
+            if self.output_mode.currentIndex() == 1
+            else None
         )
 
-        self.worker = ConversionWorker(list(self.files), mode, output_dir, self)
+        self.worker = ConversionWorker(
+            list(self.files), mode, output_dir, self
+        )
         self.worker.file_started.connect(self.on_file_started)
         self.worker.file_info.connect(self.on_file_info)
         self.worker.file_progress.connect(self.on_file_progress)
@@ -357,7 +478,9 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(self.worker.deleteLater)
 
         self.progress.setValue(0)
-        self.progress.setFormat(f"Starting · 0 / {len(self.files)}")
+        self.progress.setFormat(
+            f"Starting · 0 / {len(self.files)}"
+        )
         self._refresh_controls()
         self.worker.start()
 
@@ -377,9 +500,13 @@ class MainWindow(QMainWindow):
         self.table.item(index, 1).setText(summary)
 
     def on_file_progress(self, index: int, percent: int) -> None:
-        self.table.item(index, 2).setText(f"Converting · {percent}%")
+        self.table.item(index, 2).setText(
+            f"Converting · {percent}%"
+        )
         total = max(1, len(self.files))
-        overall = int(((index + percent / 100) / total) * 100)
+        overall = int(
+            ((index + percent / 100) / total) * 100
+        )
         self.progress.setValue(overall)
         self.progress.setFormat(
             f"Converting · file {index + 1} of {total} · {percent}%"
@@ -411,6 +538,14 @@ class MainWindow(QMainWindow):
         self.worker = None
 
         if cancelled:
+            for row in range(self.table.rowCount()):
+                status_item = self.table.item(row, 2)
+                if (
+                    status_item
+                    and status_item.text() not in TERMINAL_STATUSES
+                ):
+                    status_item.setText("Cancelled")
+
             self.progress.setFormat(
                 f"Cancelled · {completed} completed, {failed} failed"
             )
@@ -421,12 +556,22 @@ class MainWindow(QMainWindow):
                 message += f", {failed} failed"
             self.progress.setFormat(message)
 
+            notification = (
+                f"Conversion finished. {completed} completed, "
+                f"{failed} failed."
+            )
             if self.tray.isVisible():
                 self.tray.showMessage(
                     "Ratanak Media Converter",
-                    f"Conversion finished. {completed} completed, {failed} failed.",
+                    notification,
                     QSystemTrayIcon.MessageIcon.Information,
                     5000,
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Conversion finished",
+                    notification,
                 )
 
         self._refresh_controls()
@@ -434,21 +579,41 @@ class MainWindow(QMainWindow):
     def open_output_folder(self) -> None:
         directory = self.last_output_directory
 
-        if directory is None and self.output_mode.currentIndex() == 1:
+        if (
+            directory is None
+            and self.output_mode.currentIndex() == 1
+        ):
             directory = self.custom_output
 
         if directory is None and self.files:
             directory = self.files[0].parent
 
         if directory and directory.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(directory))
+            )
 
     def _refresh_controls(self) -> None:
         running = self.worker is not None
+        has_completed = any(
+            self.table.item(row, 2)
+            and self.table.item(row, 2).text() == "Done"
+            for row in range(self.table.rowCount())
+        )
+
         self.add_button.setEnabled(not running)
-        self.remove_button.setEnabled(bool(self.files) and not running)
-        self.clear_button.setEnabled(bool(self.files) and not running)
-        self.start_button.setEnabled(bool(self.files) and not running)
+        self.remove_button.setEnabled(
+            bool(self.files) and not running
+        )
+        self.clear_completed_button.setEnabled(
+            has_completed and not running
+        )
+        self.clear_button.setEnabled(
+            bool(self.files) and not running
+        )
+        self.start_button.setEnabled(
+            bool(self.files) and not running
+        )
         self.cancel_button.setEnabled(running)
         self.quality.setEnabled(not running)
         self.output_mode.setEnabled(not running)
@@ -458,21 +623,25 @@ class MainWindow(QMainWindow):
         self.drop_area.setEnabled(not running)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.worker is None:
-            event.accept()
-            return
+        if self.worker is not None:
+            answer = QMessageBox.question(
+                self,
+                "Conversion in progress",
+                "A conversion is still running. Cancel it and close the app?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
 
-        answer = QMessageBox.question(
-            self,
-            "Conversion in progress",
-            "A conversion is still running. Cancel it and close the app?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
 
-        if answer == QMessageBox.StandardButton.Yes:
             self.worker.cancel()
             self.worker.wait(3000)
-            event.accept()
-        else:
-            event.ignore()
+
+        self.settings.setValue(
+            "window/geometry", self.saveGeometry()
+        )
+        self._save_preferences()
+        event.accept()
