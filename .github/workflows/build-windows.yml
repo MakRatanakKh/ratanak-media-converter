@@ -31,19 +31,30 @@ jobs:
             choco install ffmpeg -y --no-progress
           }
 
-          $searchRoot = Join-Path $env:ChocolateyInstall "lib"
-          $ffmpeg = Get-ChildItem $searchRoot -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Length -gt 1MB } |
-            Sort-Object Length -Descending |
-            Select-Object -First 1
-          $ffprobe = Get-ChildItem $searchRoot -Recurse -File -Filter "ffprobe.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Length -gt 1MB } |
-            Sort-Object Length -Descending |
-            Select-Object -First 1
+          function Resolve-RealBinary([string] $Name) {
+            $command = Get-Command $Name -ErrorAction SilentlyContinue
+            if ($command) {
+              $candidate = Get-Item $command.Source
+              if ($candidate.Length -gt 1MB) {
+                return $candidate
+              }
+            }
 
-          if (-not $ffmpeg -or -not $ffprobe) {
-            throw "Could not locate real FFmpeg binaries. Refusing to package Chocolatey shims."
+            $searchRoot = Join-Path $env:ChocolateyInstall "lib"
+            $candidate = Get-ChildItem $searchRoot -Recurse -File -Filter "$Name.exe" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Length -gt 1MB } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+
+            if (-not $candidate) {
+              throw "Could not locate the real $Name executable. Refusing to package a shim."
+            }
+
+            return $candidate
           }
+
+          $ffmpeg = Resolve-RealBinary "ffmpeg"
+          $ffprobe = Resolve-RealBinary "ffprobe"
 
           New-Item -ItemType Directory -Force -Path vendor\ffmpeg\bin | Out-Null
           Copy-Item $ffmpeg.FullName vendor\ffmpeg\bin\ffmpeg.exe
