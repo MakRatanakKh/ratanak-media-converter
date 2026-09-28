@@ -23,6 +23,7 @@ Drag multiple videos into the app, choose an audio mode, and let the queue run o
 - Saved quality/output preferences between app launches
 - Restored window size and position
 - Clear-completed action for finished batches
+- Vibrant pink branded icon in the app window, taskbar, and packaged Windows executable
 
 ## Audio quality
 
@@ -63,7 +64,7 @@ The optional `RMC_FFMPEG_DIR` environment variable can point directly to a folde
 
 Put `ffmpeg.exe` and `ffprobe.exe` under `vendor/ffmpeg/bin/`, install `requirements-build.txt`, then run `./build_windows.ps1` from PowerShell.
 
-The PyInstaller build bundles Python, PySide6, FFmpeg, and FFprobe so the resulting Windows application does not require a separate Python installation.
+The PyInstaller build bundles Python, PySide6, FFmpeg, FFprobe, and the application icon so the resulting Windows application does not require a separate Python installation.
 
 The repository also contains a **Windows Build** GitHub Actions workflow. Every push to `main` produces a downloadable `RatanakMediaConverter-Windows` workflow artifact for testing.
 
@@ -83,6 +84,6 @@ The Windows CI workflow includes real FFmpeg integration coverage. It creates a 
 
 ## Current scope
 
-Version `0.2.0` converts/extracts the **first audio stream** from each input.
+Version `0.2.1` converts/extracts the **first audio stream** from each input.
 
-Likely next improvements include audio-track selection for files with multiple tracks, richer source metadata, installer packaging, app icons/version metadata, and additional audio output formats.
+Likely next improvements include audio-track selection for files with multiple tracks, richer source metadata, installer packaging, Windows version metadata, and additional audio output formats.
