@@ -197,6 +197,7 @@ def build_ffmpeg_command(
     input_path: Path,
     output_path: Path,
     mode: str,
+    source_channels: int | None = None,
 ) -> list[str]:
     ffmpeg = find_binary("ffmpeg")
     command = [
@@ -217,8 +218,12 @@ def build_ffmpeg_command(
         command.extend(["-c:a", "copy"])
     elif mode == "mp3_v0":
         command.extend(["-c:a", "libmp3lame", "-q:a", "0"])
+        if source_channels and source_channels > 2:
+            command.extend(["-ac", "2"])
     elif mode == "mp3_320":
         command.extend(["-c:a", "libmp3lame", "-b:a", "320k"])
+        if source_channels and source_channels > 2:
+            command.extend(["-ac", "2"])
     else:
         raise ValueError(f"Unknown conversion mode: {mode}")
 
