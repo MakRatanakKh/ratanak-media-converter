@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -65,6 +64,35 @@ class FFmpegIntegrationTests(unittest.TestCase):
         )
         return source
 
+    def create_multichannel_source(self, folder: Path) -> Path:
+        source = folder / "source-5.1.mp4"
+        self.run_command(
+            [
+                self.ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x240:r=25:d=1.2",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=5.1:sample_rate=48000",
+                "-t",
+                "1.2",
+                "-c:v",
+                "mpeg4",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "384k",
+                str(source),
+            ]
+        )
+        return source
+
     def test_mp3_v0_preserves_sample_rate_and_channels(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -76,12 +104,43 @@ class FFmpegIntegrationTests(unittest.TestCase):
             self.assertEqual(source_info.channels, 2)
 
             output = folder / "output.mp3"
-            self.run_command(build_ffmpeg_command(source, output, "mp3_v0"))
+            self.run_command(
+                build_ffmpeg_command(
+                    source,
+                    output,
+                    "mp3_v0",
+                    source_channels=source_info.channels,
+                )
+            )
 
             output_info = probe_audio(output)
             self.assertEqual(output_info.codec, "mp3")
             self.assertEqual(output_info.sample_rate, source_info.sample_rate)
             self.assertEqual(output_info.channels, source_info.channels)
+
+    def test_mp3_v0_downmixes_multichannel_audio_to_stereo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            source = self.create_multichannel_source(folder)
+            source_info = probe_audio(source)
+
+            self.assertEqual(source_info.codec, "aac")
+            self.assertEqual(source_info.sample_rate, 48000)
+            self.assertEqual(source_info.channels, 6)
+
+            output = folder / "output-stereo.mp3"
+            self.run_command(
+                build_ffmpeg_command(
+                    source,
+                    output,
+                    "mp3_v0",
+                    source_channels=source_info.channels,
+                )
+            )
+
+            output_info = probe_audio(output)
+            self.assertEqual(output_info.codec, "mp3")
+            self.assertEqual(output_info.channels, 2)
 
     def test_original_mode_stream_copies_aac(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,7 +149,14 @@ class FFmpegIntegrationTests(unittest.TestCase):
             source_info = probe_audio(source)
 
             output = folder / "output.m4a"
-            self.run_command(build_ffmpeg_command(source, output, "original"))
+            self.run_command(
+                build_ffmpeg_command(
+                    source,
+                    output,
+                    "original",
+                    source_channels=source_info.channels,
+                )
+            )
 
             output_info = probe_audio(output)
             self.assertEqual(output_info.codec, source_info.codec)
