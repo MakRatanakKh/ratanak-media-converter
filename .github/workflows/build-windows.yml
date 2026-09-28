@@ -31,9 +31,33 @@ jobs:
             choco install ffmpeg -y --no-progress
           }
 
+          $searchRoot = Join-Path $env:ChocolateyInstall "lib"
+          $ffmpeg = Get-ChildItem $searchRoot -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -gt 1MB } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          $ffprobe = Get-ChildItem $searchRoot -Recurse -File -Filter "ffprobe.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -gt 1MB } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+
+          if (-not $ffmpeg -or -not $ffprobe) {
+            throw "Could not locate real FFmpeg binaries. Refusing to package Chocolatey shims."
+          }
+
           New-Item -ItemType Directory -Force -Path vendor\ffmpeg\bin | Out-Null
-          Copy-Item (Get-Command ffmpeg).Source vendor\ffmpeg\bin\ffmpeg.exe
-          Copy-Item (Get-Command ffprobe).Source vendor\ffmpeg\bin\ffprobe.exe
+          Copy-Item $ffmpeg.FullName vendor\ffmpeg\bin\ffmpeg.exe
+          Copy-Item $ffprobe.FullName vendor\ffmpeg\bin\ffprobe.exe
+
+          if ((Get-Item vendor\ffmpeg\bin\ffmpeg.exe).Length -lt 1MB) {
+            throw "ffmpeg.exe is unexpectedly small and may be a shim."
+          }
+          if ((Get-Item vendor\ffmpeg\bin\ffprobe.exe).Length -lt 1MB) {
+            throw "ffprobe.exe is unexpectedly small and may be a shim."
+          }
+
+          .\vendor\ffmpeg\bin\ffmpeg.exe -version
+          .\vendor\ffmpeg\bin\ffprobe.exe -version
 
       - name: Build Windows application
         shell: pwsh
