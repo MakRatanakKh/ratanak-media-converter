@@ -2,7 +2,7 @@
 
 A Windows 11 batch media converter built with **Python + PySide6 + FFmpeg**.
 
-Drag multiple videos into the app, choose an audio mode, and let the queue run one file at a time. When the batch finishes, the app sends a Windows tray notification.
+Drag multiple videos into the app, choose an audio mode, and let the queue run one file at a time. When the batch finishes, the app sends a Windows notification.
 
 ## Current features
 
@@ -20,6 +20,9 @@ Drag multiple videos into the app, choose an audio mode, and let the queue run o
 - Existing files are never overwritten; a numbered filename is created instead
 - Open-output-folder shortcut
 - Windows completion notification
+- Saved quality/output preferences between app launches
+- Restored window size and position
+- Clear-completed action for finished batches
 
 ## Audio quality
 
@@ -62,14 +65,24 @@ Put `ffmpeg.exe` and `ffprobe.exe` under `vendor/ffmpeg/bin/`, install `requirem
 
 The PyInstaller build bundles Python, PySide6, FFmpeg, and FFprobe so the resulting Windows application does not require a separate Python installation.
 
+The repository also contains a **Windows Build** GitHub Actions workflow. Every push to `main` produces a downloadable `RatanakMediaConverter-Windows` workflow artifact for testing.
+
 ## Input formats
 
 FFmpeg supports a very large range of media containers/codecs. The file picker highlights common formats including MP4, MKV, MOV, AVI, WEBM, M4V, MPEG, MPG, TS, MTS, M2TS, WMV, FLV, 3GP, OGV, and VOB.
 
 The drag-and-drop area accepts any local file. FFprobe validates it when processing begins. Files without a readable audio stream are marked **Failed** and the queue continues.
 
-## Development
+## Testing
 
-Run the helper tests with `python -m unittest discover -s tests -v`.
+Run all tests with:
 
-Version `0.1.0` currently converts/extracts the **first audio stream** from each input. Audio-track selection, saved preferences, installer packaging, richer metadata handling, and more output formats can be added in later iterations.
+`python -m unittest discover -s tests -v`
+
+The Windows CI workflow includes real FFmpeg integration coverage. It creates a short synthetic MP4 with AAC audio, converts it to VBR V0 MP3, verifies codec/sample-rate/channel behavior, and separately verifies the original-audio stream-copy path.
+
+## Current scope
+
+Version `0.2.0` converts/extracts the **first audio stream** from each input.
+
+Likely next improvements include audio-track selection for files with multiple tracks, richer source metadata, installer packaging, app icons/version metadata, and additional audio output formats.
